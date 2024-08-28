@@ -4,19 +4,23 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chunked File Upload</title>
+    <title>Chunked File Upload to S3</title>
 </head>
 <body>
 
 <input type="file" id="fileInput" />
 <button onclick="startUpload()">Upload</button>
+<div id="s3status"></div>
 <div id="status"></div>
 
 <script>
     const chunkSize = 5 * 1024 * 1024; // 5MB per chunk
-    let currentChunk = 0; // Start from the first chunk
+    let currentChunk = 0;
+    let uploadId = null;
+    let totalChunks = 0;
+    let filename = "";
 
-    function startUpload() {
+    async function startUpload() {
         const fileInput = document.getElementById('fileInput');
         if (fileInput.files.length === 0) {
             alert("Please select a file.");
@@ -24,45 +28,57 @@
         }
 
         const file = fileInput.files[0];
-        const totalChunks = Math.ceil(file.size / chunkSize);
+        filename = file.name;
+        totalChunks = Math.ceil(file.size / chunkSize);
+
+        // Start the multipart upload to get an upload_id
+        const startResponse = await fetch('/start_upload/', {
+            method: 'POST',
+            body: new URLSearchParams({ filename })
+        }).then(res => res.json());
+
+        uploadId = startResponse.upload_id;
+        document.getElementById('s3status').innerText = `Upload initiated. Upload ID: [${uploadId}]`;
 
         // Check if there's an existing chunk number to resume from
         const resumeChunk = prompt(`Enter the chunk number to resume from (0 to ${totalChunks - 1}), or leave empty to start from the beginning:`);
         currentChunk = parseInt(resumeChunk) || 0;
 
-        uploadChunk(file, currentChunk, totalChunks);
+        // Start uploading chunks
+        uploadChunk(file, currentChunk);
     }
 
-    function uploadChunk(file, chunkNumber, totalChunks) {
+    async function uploadChunk(file, chunkNumber) {
+        if (chunkNumber >= totalChunks) {
+            alert('Upload completed successfully!');
+            return;
+        }
+
         const start = chunkNumber * chunkSize;
         const end = Math.min(start + chunkSize, file.size);
         const blob = file.slice(start, end);
 
         const formData = new FormData();
         formData.append('file', blob);
-        formData.append('filename', file.name);
+        formData.append('filename', filename);
         formData.append('chunk_number', chunkNumber);
         formData.append('total_chunks', totalChunks);
+        formData.append('upload_id', uploadId);
 
-        fetch('/upload_chunk/', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
+        try {
+            const response = await fetch('/upload_chunk/', {
+                method: 'POST',
+                body: formData
+            }).then(res => res.json());
+
             document.getElementById('status').innerText = `Uploaded chunk ${chunkNumber + 1} of ${totalChunks}`;
 
-            if (chunkNumber + 1 < totalChunks) {
-                // Upload the next chunk
-                uploadChunk(file, chunkNumber + 1, totalChunks);
-            } else {
-                alert('Upload completed successfully!');
-            }
-        })
-        .catch(error => {
+            // Upload the next chunk
+            uploadChunk(file, chunkNumber + 1);
+        } catch (error) {
             console.error('Error uploading chunk:', error);
             alert(`Failed to upload chunk ${chunkNumber + 1}. Please try again.`);
-        });
+        }
     }
 </script>
 
