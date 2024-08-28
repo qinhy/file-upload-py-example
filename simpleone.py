@@ -1,11 +1,6 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-import os
-from shutil import copyfileobj
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import JSONResponse
 import os
-
 
 app = FastAPI()
 
@@ -32,20 +27,17 @@ async def upload_large_file(file: UploadFile = File(...)):
             chunk_size = 5 * 1024 * 1024
             while content := await file.read(chunk_size):
                 buffer.write(content)
-
         return JSONResponse(content={"filename": file.filename, "message": "File uploaded successfully."})
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/upload_chunk/")
-async def upload_chunk(
-    file: UploadFile = File(...),
-    filename: str = Form(...),
-    chunk_number: int = Form(...),
-    total_chunks: int = Form(...)
-):
+async def upload_chunk( file: UploadFile = File(...),
+                        filename: str = Form(...),
+                        chunk_number: int = Form(...),
+                        total_chunks: int = Form(...)
+                    ):
     try:
         # Save each chunk independently with a unique name based on chunk number
         chunk_filename = os.path.join(UPLOAD_DIRECTORY, f"{filename}.chunk_{chunk_number}")
@@ -59,7 +51,6 @@ async def upload_chunk(
             # Merge chunks into a single file
             merge_chunks(filename, total_chunks)
             return JSONResponse(content={"filename": filename, "message": "All chunks uploaded successfully."})
-
         return JSONResponse(content={"filename": filename, "message": f"Chunk {chunk_number + 1} of {total_chunks} uploaded successfully."})
 
     except Exception as e:
