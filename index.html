@@ -32,18 +32,19 @@
         totalChunks = Math.ceil(file.size / chunkSize);
 
         // Start the multipart upload to get an upload_id
+
+        const formData = new FormData();
+        formData.append('filename', filename);
+        formData.append('total_chunks', totalChunks);
         const startResponse = await fetch('/start_upload/', {
             method: 'POST',
-            body: new URLSearchParams({ filename })
+            body: formData
         }).then(res => res.json());
 
         uploadId = startResponse.upload_id;
+        currentChunk = startResponse.chunk_number;
+
         document.getElementById('s3status').innerText = `Upload initiated. Upload ID: [${uploadId}]`;
-
-        // Check if there's an existing chunk number to resume from
-        const resumeChunk = prompt(`Enter the chunk number to resume from (0 to ${totalChunks - 1}), or leave empty to start from the beginning:`);
-        currentChunk = parseInt(resumeChunk) || 0;
-
         // Start uploading chunks
         uploadChunk(file, currentChunk);
     }
@@ -61,9 +62,6 @@
         const formData = new FormData();
         formData.append('file', blob);
         formData.append('filename', filename);
-        formData.append('chunk_number', chunkNumber);
-        formData.append('total_chunks', totalChunks);
-        formData.append('upload_id', uploadId);
 
         try {
             const response = await fetch('/upload_chunk/', {
