@@ -44,7 +44,8 @@
         uploadId = startResponse.upload_id;
         currentChunk = startResponse.chunk_number;
 
-        document.getElementById('s3status').innerText = `Upload initiated. Upload ID: [${uploadId}]`;
+        document.getElementById('s3status').innerText =
+                    `Upload initiated. Upload ID: [${uploadId}]`;
         // Start uploading chunks
         uploadChunk(file, currentChunk);
     }
@@ -69,7 +70,8 @@
                 body: formData
             }).then(res => res.json());
 
-            document.getElementById('status').innerText = `Uploaded chunk ${chunkNumber + 1} of ${totalChunks}`;
+            document.getElementById('status').innerText = 
+                `Uploaded chunk ${chunkNumber + 1} of ${totalChunks}`;
 
             // Upload the next chunk
             uploadChunk(file, chunkNumber + 1);
