@@ -25,9 +25,6 @@ store.s3_backend(
             region_name=os.environ['AWS_DEFAULT_REGION']
         )
 
-# Store upload session information in memory or use persistent storage like Redis or DynamoDB for production
-# upload_sessions = {}
-
 @app.get("/")
 def serve_html():
     return FileResponse("index.html")  # Ensure the file is in the same directory as this script
@@ -46,7 +43,8 @@ def start_upload(filename: str = Form(...),
     else:
         upload_id = file_meta['upload_id']
 
-    return JSONResponse(content={"upload_id": upload_id, 'chunk_number':len(file_meta['parts']), "message": "Multipart upload initiated."})
+    return JSONResponse(content={"upload_id": upload_id, 'chunk_number':len(file_meta['parts']),
+                                 "message": "Multipart upload initiated."})
 
 @app.post("/upload_chunk/")
 async def upload_chunk(
@@ -82,9 +80,11 @@ async def upload_chunk(
             complete_multipart_upload(filename, upload_id, file_meta['parts'])
             store.delete(filename)
 
-            return JSONResponse(content={"filename": filename, "message": "All chunks uploaded and merged successfully on S3."})
+            return JSONResponse(content={"filename": filename,
+                                         "message": "All chunks uploaded and merged successfully on S3."})
 
-        return JSONResponse(content={"filename": filename, "message": f"Chunk {len(file_meta['parts']) + 1} of {total_chunks} uploaded successfully."})
+        return JSONResponse(content={"filename": filename,
+                                     "message": f"Chunk {len(file_meta['parts']) + 1} of {total_chunks} uploaded successfully."})
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
