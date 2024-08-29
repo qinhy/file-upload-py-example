@@ -14,12 +14,6 @@
 <div id="status"></div>
 
 <script>
-    const chunkSize = 5 * 1024 * 1024; // 5MB per chunk
-    let currentChunk = 0;
-    let uploadId = null;
-    let totalChunks = 0;
-    let filename = "";
-
     async function startUpload() {
         const fileInput = document.getElementById('fileInput');
         if (fileInput.files.length === 0) {
@@ -29,28 +23,29 @@
 
         const file = fileInput.files[0];
         filename = file.name;
-        totalChunks = Math.ceil(file.size / chunkSize);
 
         // Start the multipart upload to get an upload_id
 
         const formData = new FormData();
         formData.append('filename', filename);
-        formData.append('total_chunks', totalChunks);
+        formData.append('filesize', file.size);
         const startResponse = await fetch('/start_upload/', {
             method: 'POST',
             body: formData
         }).then(res => res.json());
 
-        uploadId = startResponse.upload_id;
-        currentChunk = startResponse.chunk_number;
+        var uploadId = startResponse.upload_id;
+        var chunkSize = startResponse.chunk_size;
+        var currentChunk = startResponse.chunk_number;
+        var totalChunks = startResponse.total_chunks;
 
         document.getElementById('s3status').innerText =
                     `Upload initiated. Upload ID: [${uploadId}]`;
         // Start uploading chunks
-        uploadChunk(file, currentChunk);
+        uploadChunk(file, chunkSize, currentChunk, totalChunks);
     }
 
-    async function uploadChunk(file, chunkNumber) {
+    async function uploadChunk(file, chunkSize, chunkNumber, totalChunks) {
         if (chunkNumber >= totalChunks) {
             alert('Upload completed successfully!');
             return;
@@ -74,7 +69,7 @@
                 `Uploaded chunk ${chunkNumber + 1} of ${totalChunks}`;
 
             // Upload the next chunk
-            uploadChunk(file, chunkNumber + 1);
+            uploadChunk(file, chunkSize, chunkNumber+1, totalChunks);
         } catch (error) {
             console.error('Error uploading chunk:', error);
             alert(`Failed to upload chunk ${chunkNumber + 1}. Please try again.`);

@@ -1,3 +1,4 @@
+import math
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 import os
@@ -31,19 +32,29 @@ def serve_html():
 
 @app.post("/start_upload/")
 def start_upload(filename: str = Form(...),
-                 total_chunks: int = Form(...)):
+                 filesize: int = Form(...)):
     file_meta = store.get(filename)
     if file_meta is None:
         # Start a new multipart upload
+        chunk_size = 5 * 1024 * 1024; # 5MB per chunk
+        total_chunks = math.ceil(filesize / chunk_size)
         response = s3_client.create_multipart_upload(Bucket=BUCKET_NAME, Key=filename)
         upload_id = response['UploadId']    
         file_meta = {'upload_id': upload_id,
-                    'total_chunks':total_chunks,'parts': []}
+                     'filesize':filesize,
+                     'chunk_size':chunk_size,
+                     'total_chunks':total_chunks,
+                     'parts': []}
         store.set(filename,file_meta)
     else:
         upload_id = file_meta['upload_id']
+        chunk_size = file_meta['chunk_size']
+        total_chunks = file_meta['total_chunks']
 
-    return JSONResponse(content={"upload_id": upload_id, 'chunk_number':len(file_meta['parts']),
+    return JSONResponse(content={"upload_id": upload_id,
+                                 "chunk_size": chunk_size,
+                                 'chunk_number':len(file_meta['parts']),
+                                 "total_chunks": total_chunks,
                                  "message": "Multipart upload initiated."})
 
 @app.post("/upload_chunk/")
