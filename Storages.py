@@ -513,7 +513,7 @@ if aws_s3:
             
         def _de_s3_path(self,path:str):
             return path.replace(f'{self.model.s3_storage_prefix_path}/',''
-                         ).replace(f'.json','')
+                         )[:-len('.json')]
         
         def exists(self, key: str)->bool:
             try:

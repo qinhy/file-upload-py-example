@@ -1,74 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chunked File Upload to S3</title>
 </head>
-<body>
 
-<input type="file" id="fileInput" />
-<button onclick="startUpload()">Upload</button>
-<div id="s3status"></div>
-<div id="status"></div>
-<script>
-    async function startUpload() {
-        const fileInput = document.getElementById('fileInput');
-        if (fileInput.files.length === 0) {
-            alert("Please select a file.");
-            return;
+<body>
+    <div class="container">
+        <input type="file" id="fileInput" />
+        <progress id="progress" value="0" max="100"></progress>
+    </div>
+    <div id="status"></div>
+    <div id="debugmsg" hidden></div>
+    <script>
+        var file_name = null;
+        var file_size = null;
+        var file_hash = null;
+        var file_server_data = null;
+
+        const requestForm = (file = null) => {
+            const formData = new FormData();
+            if (file) formData.append('file', file);
+            formData.append('file_name', file_name);
+            formData.append('file_size', file_size);
+            formData.append('file_hash', file_hash);
+            return formData;
         }
 
-        const file = fileInput.files[0];
-        const { upload_id, chunk_size, chunk_number, total_chunks } = await initiateUpload(file);
+        document.getElementById('fileInput').addEventListener('change', function (event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+            file_name = file.name;
+            file_size = file.size;
 
-        document.getElementById('s3status').innerText = `Upload initiated. Upload ID: [${upload_id}]`;
-        uploadChunk(file, chunk_size, chunk_number, total_chunks);
-    }
+            const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+            const chunks = Math.ceil(file.size / chunkSize);
+            const progress = document.getElementById('progress');
+            progress.value = 0;
 
-    async function initiateUpload(file) {
-        const formData = new FormData();
-        formData.append('filename', file.name);
-        formData.append('filesize', file.size);
+            document.getElementById('status').innerText = 'Calculating SHA-256 Hash ...';
 
-        const response = await fetch('/start_upload/', {
-            method: 'POST',
-            body: formData
+            calculateHash(file, chunkSize, chunks, progress).then(function (hashBuffer) {
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                file_hash = hashArray.map(function (byte) {
+                    return byte.toString(16).padStart(2, '0');
+                }).join('');
+                document.getElementById('status').innerText += 'end';
+                document.getElementById('debugmsg').innerText += `${file_name} SHA-256 Hash: ${file_hash}\n`;
+                document.getElementById('status').innerText = 'Uploading ...';
+                startUpload().then(function (file_server_data) {
+                    document.getElementById('debugmsg').innerText += JSON.stringify(file_server_data);
+                    uploadChunk(file, file_server_data.chunk_size,
+                        file_server_data.parts.length, file_server_data.total_chunks);
+                });
+            }).catch(function (error) {
+                document.getElementById('debugmsg').innerText += `Error: ${error.message}\n`;
+            });
         });
 
-        return response.json();
-    }
-
-    async function uploadChunk(file, chunkSize, chunkNumber, totalChunks) {
-        if (chunkNumber >= totalChunks) {
-            alert('Upload completed successfully!');
-            return;
-        }
-
-        const start = chunkNumber * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        const blob = file.slice(start, end);
-
-        const formData = new FormData();
-        formData.append('file', blob);
-        formData.append('filename', file.name);
-
-        try {
-            await fetch('/upload_chunk/', {
-                method: 'POST',
-                body: formData
+        function startUpload() {
+            return new Promise(function (resolve, reject) {
+                fetch('/start_upload/', {
+                    method: 'POST',
+                    body: requestForm()
+                }).then(function (res) {
+                    return res.json();
+                }).then(function (data) {
+                    resolve(data.data);
+                }).catch(function (error) {
+                    reject(error);
+                });
             });
-
-            document.getElementById('status').innerText = `Uploaded chunk ${chunkNumber + 1} of ${totalChunks}`;
-            uploadChunk(file, chunkSize, chunkNumber + 1, totalChunks);
-        } catch (error) {
-            console.error('Error uploading chunk:', error);
-            alert(`Failed to upload chunk ${chunkNumber + 1}. Please try again.`);
         }
-    }
-</script>
 
+        function uploadChunk(file, chunkSize, chunkNumber, totalChunks) {
+            const progress = document.getElementById('progress');
+            progress.value = (chunkNumber / totalChunks) * 100;
+            if (chunkNumber >= totalChunks) {
+                startUpload().then(function (file_server_data) {
+                    document.getElementById('debugmsg').innerText += JSON.stringify(file_server_data) + '\n';
+                    // file will be merged and record will be removed, undefined means end.
+                    if (file_server_data !== undefined) {
+                        uploadChunk(file, file_server_data.chunk_size, file_server_data.parts.length, file_server_data.total_chunks);
+                    } else {
+                        document.getElementById('status').innerText += 'end';
+                    }
+                });
+                return;
+            }
+            const start = chunkNumber * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const blob = file.slice(start, end);
 
+            fetch('/upload_chunk/', {
+                method: 'POST',
+                body: requestForm(blob)
+            }).then(function (res) {
+                return res.json();
+            }).then(function (data) {
+                file_server_data = data.data;
+                document.getElementById('debugmsg').innerText += JSON.stringify(file_server_data) + '\n';
+                uploadChunk(file, file_server_data.chunk_size, file_server_data.parts.length, file_server_data.total_chunks);
+            }).catch(function (error) {
+                console.error('Error uploading chunk:', error);
+                alert(`Failed to upload chunk ${chunkNumber + 1}. Please try again.`);
+            });
+        }
+
+        function calculateHash(file, chunkSize, chunks, progress) {
+            const crypto = window.crypto || window.msCrypto; // for IE 11
+            const hashAlgorithm = 'SHA-256';
+
+            return new Promise(function (resolve, reject) {
+                var hashBuffer = new ArrayBuffer(0);
+                function processChunk(i) {
+                    if (i >= chunks) {
+                        resolve(hashBuffer);
+                        return;
+                    }
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, file.size);
+                    const chunk = file.slice(start, end);
+
+                    chunk.arrayBuffer().then(function (chunkBuffer) {
+                        crypto.subtle.digest(hashAlgorithm, new Uint8Array(chunkBuffer)).then(function (digest) {
+                            hashBuffer = digest;
+                            progress.value = ((i + 1) / chunks) * 100;
+                            processChunk(i + 1);
+                        }).catch(reject);
+                    }).catch(reject);
+                }
+                processChunk(0);
+            });
+        }
+    </script>
 </body>
+
 </html>
